@@ -2,6 +2,7 @@ import User from "../models/user.model.js"
 import bcrypt from "bcryptjs"
 import { generateToken } from "../lib/utils.js";
 import cloudinary from "../lib/cloudinary.js"
+import crypto from "crypto"
 
 export const signup= async (req,res) => {
     // res.send("signup route");
@@ -128,5 +129,100 @@ export const checkAuth=(req,res) => {
     } catch (error) {
         console.log("Error in checkAuth controller", error.message);
         res.status(500).json({message: "Internal server error"});
+    }
+};
+
+// Forgot password - generate reset token
+export const forgotPassword = async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ message: "Email is required" });
+        }
+
+        const user = await User.findOne({ email });
+
+        if (!user) {
+            // Don't reveal if user exists or not for security
+            return res.status(200).json({ 
+                message: "If an account exists with this email, a password reset link has been sent." 
+            });
+        }
+
+        // Generate reset token
+        const resetToken = crypto.randomBytes(32).toString("hex");
+        const resetPasswordToken = crypto.createHash("sha256").update(resetToken).digest("hex");
+        const resetPasswordExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+        // Save reset token to user
+        user.resetPasswordToken = resetPasswordToken;
+        user.resetPasswordExpires = new Date(resetPasswordExpires);
+        await user.save({ validateBeforeSave: false });
+
+        // In production, you would send an email here
+        // For now, we'll return the reset token in development
+        // const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/reset-password/${resetToken}`;
+        
+        // TODO: Send email with reset link
+        // await sendPasswordResetEmail(user.email, resetUrl);
+
+        // In development, log the reset token (remove in production)
+        if (process.env.NODE_ENV === "development") {
+            console.log("Reset Token (DEV ONLY):", resetToken);
+            console.log("Reset URL:", `${process.env.FRONTEND_URL || "http://localhost:5173"}/reset-password/${resetToken}`);
+        }
+
+        res.status(200).json({ 
+            message: "If an account exists with this email, a password reset link has been sent.",
+            // Only include in development
+            ...(process.env.NODE_ENV === "development" && { resetToken, resetUrl: `${process.env.FRONTEND_URL || "http://localhost:5173"}/reset-password/${resetToken}` })
+        });
+    } catch (error) {
+        console.log("Error in forgotPassword controller", error.message);
+        res.status(500).json({ message: "Internal Server Error" });
+    }
+};
+
+// Reset password - verify token and update password
+export const resetPassword = async (req, res) => {
+    try {
+        const { token, password } = req.body;
+
+        if (!token || !password) {
+            return res.status(400).json({ message: "Token and password are required" });
+        }
+
+        if (password.length < 6) {
+            return res.status(400).json({ message: "Password must be at least 6 characters" });
+        }
+
+        // Hash the token to compare with stored token
+        const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+
+        // Find user with valid reset token
+        const user = await User.findOne({
+            resetPasswordToken: hashedToken,
+            resetPasswordExpires: { $gt: Date.now() }
+        });
+
+        if (!user) {
+            return res.status(400).json({ message: "Invalid or expired reset token" });
+        }
+
+        // Hash new password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        // Update user password and clear reset token
+        user.password = hashedPassword;
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpires = undefined;
+        await user.save();
+
+        res.status(200).json({ message: "Password reset successfully. You can now login with your new password." });
+    } catch (error) {
+        console.log("Error in resetPassword controller", error.message);
+        res.status(500).json({ message: "Internal Server Error" });
     }
 };
