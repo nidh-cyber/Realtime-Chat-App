@@ -15,9 +15,10 @@ export const generateToken=(userId,res) => {
     res.cookie("jwt", token, {
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   httpOnly: true,                 // blocks JS access
-  sameSite: "lax",                // or "strict" is also okay
-  secure: false,                  // ✅ absolutely must be false for localhost
-  path: "/",                      // ✅ ensure it's set for all paths
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // "none" required for cross-domain in production
+  secure: process.env.NODE_ENV === "production", // true for HTTPS in production
+  path: "/",                      // ensure it's set for all paths
+  domain: process.env.COOKIE_DOMAIN || undefined, // optional: set if frontend/backend on different subdomains
 });
     return token;
 };
