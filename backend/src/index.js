@@ -10,8 +10,9 @@ import { connectDB } from "./lib/db.js";
 import authRoutes from "./routes/auth.route.js";
 import messageRoutes from "./routes/message.route.js";
 import groupRoutes from "./routes/group.route.js";
-import { app, server } from "./lib/socket.js";
+import { app, initializeSocketRedis, server } from "./lib/socket.js";
 import { errorHandler } from "./lib/errorHandler.js";
+import { apiRateLimit } from "./middleware/rateLimit.middleware.js";
 
 dotenv.config();
 
@@ -44,6 +45,7 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
+app.use("/api", apiRateLimit);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
@@ -62,4 +64,5 @@ app.use(errorHandler);
 server.listen(PORT, () => {
   console.log("server is running on PORT:" + PORT);
   connectDB();
+  void initializeSocketRedis();
 });

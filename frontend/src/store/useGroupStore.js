@@ -239,6 +239,15 @@ export const useGroupStore = create((set, get) => ({
       });
     });
 
+    socket.on("unreadCount", ({ conversationId, count }) => {
+      set((state) => ({
+        groupUnreadCounts: {
+          ...state.groupUnreadCounts,
+          [conversationId]: count,
+        },
+      }));
+    });
+
     socket.on("groupDeleted", ({ groupId }) => {
       set((state) => ({
         groups: state.groups.filter((group) => group._id !== groupId),
@@ -265,6 +274,7 @@ export const useGroupStore = create((set, get) => ({
     if (!socket) return;
     socket.off("groupMessage");
     socket.off("groupTyping");
+    socket.off("unreadCount");
     socket.off("groupDeleted");
     socket.off("groupUserJoined");
     socket.off("groupUserLeft");

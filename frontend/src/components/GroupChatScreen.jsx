@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image as ImageIcon, Send, X, Users } from "lucide-react";
 import { formatMessageTime } from "../lib/utils";
 import { userAuthStore } from "../store/userAuthStore";
@@ -10,12 +10,42 @@ const GroupChatScreen = ({ group }) => {
   const { authUser } = userAuthStore();
   const { groupMessages, typingUsers, fetchGroupDetails, sendGroupMessage, subscribeToGroupMessages, unsubscribeFromGroupMessages } = useGroupStore();
   const messageEndRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  const isTypingRef = useRef(false);
 
-  const emitTyping = (isTyping) => {
+  const emitTyping = useCallback((isTyping) => {
     const socket = userAuthStore.getState().socket;
     if (socket && group?._id) {
       socket.emit("groupTyping", { groupId: group._id, user: authUser, isTyping });
     }
+  }, [authUser, group?._id]);
+
+  const stopTyping = useCallback(() => {
+    clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = null;
+
+    if (isTypingRef.current) {
+      emitTyping(false);
+      isTypingRef.current = false;
+    }
+  }, [emitTyping]);
+
+  const handleTextChange = (event) => {
+    const nextText = event.target.value;
+    setText(nextText);
+
+    if (!nextText.trim()) {
+      stopTyping();
+      return;
+    }
+
+    if (!isTypingRef.current) {
+      emitTyping(true);
+      isTypingRef.current = true;
+    }
+
+    clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(stopTyping, 800);
   };
 
   useEffect(() => {
@@ -33,8 +63,8 @@ const GroupChatScreen = ({ group }) => {
   }, [groupMessages]);
 
   useEffect(() => {
-    return () => emitTyping(false);
-  }, [group?._id]);
+    return stopTyping;
+  }, [stopTyping]);
 
   const typingLabel = useMemo(() => {
     const activeUsers = typingUsers.filter((entry) => entry.groupId === group?._id).map((entry) => entry.user?.fullName || "Someone");
@@ -53,6 +83,7 @@ const GroupChatScreen = ({ group }) => {
   const handleSend = async (event) => {
     event.preventDefault();
     if (!text.trim() && !imagePreview) return;
+    stopTyping();
     const message = await sendGroupMessage(group._id, { message: text.trim(), image: imagePreview });
     if (message) {
       setText("");
@@ -114,11 +145,8 @@ const GroupChatScreen = ({ group }) => {
           <input
             type="text"
             value={text}
-            onChange={(event) => {
-              setText(event.target.value);
-              emitTyping(Boolean(event.target.value.trim()));
-            }}
-            onBlur={() => emitTyping(false)}
+            onChange={handleTextChange}
+            onBlur={stopTyping}
             className="input input-bordered flex-1"
             placeholder="Write a message"
           />

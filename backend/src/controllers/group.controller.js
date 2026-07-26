@@ -2,8 +2,10 @@ import Group from "../models/group.model.js";
 import Message from "../models/message.model.js";
 import User from "../models/user.model.js";
 import cloudinary from "../lib/cloudinary.js";
-import { io } from "../lib/socket.js";
+import { emitToRoom } from "../lib/socket.js";
 import { HttpError } from "../lib/errorHandler.js";
+import { clearUnread, incrementUnread, invalidateGroupCaches } from "../lib/chatState.js";
+import { cacheKey, getCachedJson, setCachedJson, withDistributedLock } from "../lib/redis.js";
 
 const toObjectId = (value) => {
   if (!value) return null;
@@ -81,6 +83,7 @@ export const createGroup = async (req, res, next) => {
       .populate("admins", "fullName profilePic email")
       .populate("createdBy", "fullName profilePic email");
 
+    await invalidateGroupCaches(populatedGroup);
     res.status(201).json({ group: populatedGroup });
   } catch (error) {
     next(error);
@@ -89,6 +92,9 @@ export const createGroup = async (req, res, next) => {
 
 export const getGroups = async (req, res, next) => {
   try {
+    const cachedGroups = await getCachedJson(cacheKey("cache", "groups", req.user._id.toString()));
+    if (cachedGroups) return res.status(200).json(cachedGroups);
+
     const groups = await Group.find({ members: req.user._id })
       .populate("members", "fullName profilePic email")
       .populate("admins", "fullName profilePic email")
@@ -96,6 +102,7 @@ export const getGroups = async (req, res, next) => {
       .populate("lastMessage")
       .sort({ updatedAt: -1 });
 
+    await setCachedJson(cacheKey("cache", "groups", req.user._id.toString()), groups, 60);
     res.status(200).json(groups);
   } catch (error) {
     next(error);
@@ -116,9 +123,15 @@ export const getGroupById = async (req, res, next) => {
 
     ensureMember(group, req.user._id);
 
+    const detailCacheKey = cacheKey("cache", "group", group._id.toString(), req.user._id.toString());
+    const cachedDetail = await getCachedJson(detailCacheKey);
+    if (cachedDetail) return res.status(200).json(cachedDetail);
+
     const messages = await Message.find({ groupId: group._id }).sort({ createdAt: 1 });
 
-    res.status(200).json({ group, messages });
+    const payload = { group, messages };
+    await setCachedJson(detailCacheKey, payload, 30);
+    res.status(200).json(payload);
   } catch (error) {
     next(error);
   }
@@ -153,6 +166,7 @@ export const updateGroup = async (req, res, next) => {
       .populate("admins", "fullName profilePic email")
       .populate("createdBy", "fullName profilePic email");
 
+    await invalidateGroupCaches(updatedGroup);
     res.status(200).json({ group: updatedGroup });
   } catch (error) {
     next(error);
@@ -174,7 +188,8 @@ export const deleteGroup = async (req, res, next) => {
     await Message.deleteMany({ groupId: group._id });
     await Group.findByIdAndDelete(group._id);
 
-    io.to(group._id.toString()).emit("groupDeleted", { groupId: group._id.toString() });
+    await invalidateGroupCaches(group);
+    emitToRoom(group._id, "groupDeleted", { groupId: group._id.toString() });
 
     res.status(200).json({ message: "Group deleted successfully" });
   } catch (error) {
@@ -207,6 +222,7 @@ export const addMembers = async (req, res, next) => {
       throw new HttpError(400, "These members are already part of the group");
     }
 
+    await invalidateGroupCaches(group);
     group.members = [...existingMembers, ...newMembers];
     await group.save();
 
@@ -217,7 +233,8 @@ export const addMembers = async (req, res, next) => {
 
     const addedUsers = await User.find({ _id: { $in: newMembers } }).select("fullName profilePic email");
 
-    io.to(group._id.toString()).emit("groupUserJoined", {
+    await invalidateGroupCaches(populatedGroup);
+    emitToRoom(group._id, "groupUserJoined", {
       groupId: group._id.toString(),
       members: addedUsers,
     });
@@ -244,6 +261,7 @@ export const removeMember = async (req, res, next) => {
       throw new HttpError(400, "Use the leave group option to remove yourself");
     }
 
+    await invalidateGroupCaches(group);
     const memberId = userId.toString();
     group.members = group.members.filter((member) => toObjectId(member) !== memberId);
     group.admins = group.admins.filter((admin) => toObjectId(admin) !== memberId);
@@ -259,7 +277,8 @@ export const removeMember = async (req, res, next) => {
       .populate("admins", "fullName profilePic email")
       .populate("createdBy", "fullName profilePic email");
 
-    io.to(group._id.toString()).emit("groupUserLeft", {
+    await invalidateGroupCaches(group);
+    emitToRoom(group._id, "groupUserLeft", {
       groupId: group._id.toString(),
       userId: memberId,
     });
@@ -282,13 +301,15 @@ export const leaveGroup = async (req, res, next) => {
     ensureMember(group, req.user._id);
 
     const userId = req.user._id.toString();
+    await invalidateGroupCaches(group);
     group.members = group.members.filter((member) => toObjectId(member) !== userId);
     group.admins = group.admins.filter((admin) => toObjectId(admin) !== userId);
 
     if (!group.members.length) {
       await Message.deleteMany({ groupId: group._id });
       await Group.findByIdAndDelete(group._id);
-      io.to(group._id.toString()).emit("groupDeleted", { groupId: group._id.toString() });
+      await invalidateGroupCaches(group);
+      emitToRoom(group._id, "groupDeleted", { groupId: group._id.toString() });
       return res.status(200).json({ message: "Group deleted because no members remain" });
     }
 
@@ -298,7 +319,8 @@ export const leaveGroup = async (req, res, next) => {
 
     await group.save();
 
-    io.to(group._id.toString()).emit("groupUserLeft", {
+    await invalidateGroupCaches(group);
+    emitToRoom(group._id, "groupUserLeft", {
       groupId: group._id.toString(),
       userId,
     });
@@ -341,6 +363,7 @@ export const transferAdmin = async (req, res, next) => {
       .populate("admins", "fullName profilePic email")
       .populate("createdBy", "fullName profilePic email");
 
+    await invalidateGroupCaches(populatedGroup);
     res.status(200).json({ group: populatedGroup });
   } catch (error) {
     next(error);
@@ -384,12 +407,20 @@ export const sendGroupMessage = async (req, res, next) => {
       seenBy: [req.user._id],
     });
 
-    group.lastMessage = newMessage._id;
-    await group.save();
+    await withDistributedLock(`group-last-message:${group._id}`, async () => {
+      group.lastMessage = newMessage._id;
+      await group.save();
+    });
 
     const populatedMessage = await Message.findById(newMessage._id).populate("sender", "fullName profilePic email");
 
-    io.to(group._id.toString()).emit("groupMessage", populatedMessage);
+    await invalidateGroupCaches(group);
+    emitToRoom(group._id, "groupMessage", populatedMessage);
+    await Promise.all(
+      group.members
+        .filter((member) => toObjectId(member) !== toObjectId(req.user._id))
+        .map((member) => incrementUnread(member, group._id))
+    );
 
     res.status(201).json(populatedMessage);
   } catch (error) {
@@ -408,15 +439,19 @@ export const markGroupMessagesSeen = async (req, res, next) => {
 
     ensureMember(group, req.user._id);
 
-    await Message.updateMany(
-      {
-        groupId: group._id,
-        seenBy: { $ne: req.user._id },
-      },
-      {
-        $addToSet: { seenBy: req.user._id },
-      }
-    );
+    await withDistributedLock(`group-seen:${group._id}:${req.user._id}`, async () => {
+      await Message.updateMany(
+        {
+          groupId: group._id,
+          seenBy: { $ne: req.user._id },
+        },
+        {
+          $addToSet: { seenBy: req.user._id },
+        }
+      );
+      await clearUnread(req.user._id, group._id);
+    });
+    await invalidateGroupCaches(group);
 
     const messages = await Message.find({ groupId: group._id }).sort({ createdAt: 1 });
     res.status(200).json(messages);
