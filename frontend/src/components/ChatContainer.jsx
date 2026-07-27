@@ -1,6 +1,6 @@
 import { Search } from "lucide-react";
 import { useChatStore } from "../store/useChatStore";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import ChatHeader from "./ChatHeader";
 import MessageInput from "./MessageInput";
@@ -12,7 +12,10 @@ const ChatContainer = () => {
   const {
     messages,
     getMessages,
+    loadOlderMessages,
     isMessagesLoading,
+    isLoadingOlderMessages,
+    hasMoreMessages,
     selectedUser,
     subscribeToMessages,
     unsubscribeFromMessages,
@@ -20,9 +23,11 @@ const ChatContainer = () => {
   const { authUser } = userAuthStore();
   const [messageSearch, setMessageSearch] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const messageEndRef = useRef(null);
+  const messageListRef = useRef(null);
+  const shouldScrollToBottomRef = useRef(true);
 
   useEffect(() => {
+    shouldScrollToBottomRef.current = true;
     getMessages(selectedUser._id);
 
     subscribeToMessages();
@@ -30,11 +35,31 @@ const ChatContainer = () => {
     return () => unsubscribeFromMessages();
   }, [selectedUser._id, getMessages, subscribeToMessages, unsubscribeFromMessages]);
 
-  useEffect(() => {
-    if (messageEndRef.current && messages) {
-      messageEndRef.current.scrollIntoView({ behavior: "smooth" });
+  useLayoutEffect(() => {
+    const messageList = messageListRef.current;
+    if (messageList && shouldScrollToBottomRef.current && !isMessagesLoading) {
+      messageList.scrollTop = messageList.scrollHeight;
+      shouldScrollToBottomRef.current = false;
     }
-  }, [messages]);
+  }, [messages, isMessagesLoading]);
+
+  const handleScroll = async (event) => {
+    const messageList = event.currentTarget;
+    const isNearBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 80;
+    shouldScrollToBottomRef.current = isNearBottom;
+
+    if (messageSearch.trim() || messageList.scrollTop > 50 || !hasMoreMessages || isLoadingOlderMessages) return;
+
+    const previousHeight = messageList.scrollHeight;
+    const previousTop = messageList.scrollTop;
+    const loaded = await loadOlderMessages(selectedUser._id);
+    if (loaded) {
+      requestAnimationFrame(() => {
+        const updatedList = messageListRef.current;
+        if (updatedList) updatedList.scrollTop = updatedList.scrollHeight - previousHeight + previousTop;
+      });
+    }
+  };
 
   const filteredMessages = messageSearch.trim()
     ? messages.filter((message) => (message.text || message.message || "").toLowerCase().includes(messageSearch.trim().toLowerCase()))
@@ -55,7 +80,7 @@ const ChatContainer = () => {
       <ChatHeader isSearchOpen={isSearchOpen} onToggleSearch={() => setIsSearchOpen((open) => !open)} />
 
       <div className="flex-1 overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-4">
+        <div ref={messageListRef} onScroll={handleScroll} className="h-full overflow-y-auto p-4">
           {isSearchOpen && (
             <div className="mb-4 flex items-center gap-2 rounded-xl border border-base-300 bg-base-200 px-3 py-2">
               <Search size={16} className="text-zinc-400" />
@@ -70,11 +95,11 @@ const ChatContainer = () => {
           )}
 
           <div className="space-y-4">
+            {isLoadingOlderMessages && <div className="py-2 text-center text-xs text-zinc-500">Loading older messages...</div>}
             {filteredMessages.map((message) => (
               <div
               key={message._id}
               className={`chat ${message.senderId === authUser._id ? "chat-end" : "chat-start"}`}
-              ref={messageEndRef}
             >
               <div className=" chat-image avatar">
                 <div className="size-10 rounded-full border">

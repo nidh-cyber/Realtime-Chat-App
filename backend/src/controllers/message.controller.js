@@ -5,6 +5,24 @@ import { emitToUser } from "../lib/socket.js";
 import { HttpError } from "../lib/errorHandler.js";
 import { clearUnread, incrementUnread } from "../lib/chatState.js";
 
+const MESSAGE_PAGE_SIZE = 30;
+
+const getMessagePage = async (filter, before) => {
+  const cursorFilter = before ? { _id: { $lt: before } } : {};
+  const results = await Message.find({ ...filter, ...cursorFilter })
+    .sort({ _id: -1 })
+    .limit(MESSAGE_PAGE_SIZE + 1);
+
+  const hasMore = results.length > MESSAGE_PAGE_SIZE;
+  const messages = results.slice(0, MESSAGE_PAGE_SIZE).reverse();
+
+  return {
+    messages,
+    hasMore,
+    nextCursor: messages[0]?._id?.toString() || null,
+  };
+};
+
 export const getUsersForSidebar = async (req, res, next) => {
   try {
     const loggedInUserId = req.user._id;
@@ -19,17 +37,22 @@ export const getUsersForSidebar = async (req, res, next) => {
 export const getMessages = async (req, res, next) => {
   try {
     const { id: userToChatId } = req.params;
+    const { before } = req.query;
     const myId = req.user._id;
 
-    const messages = await Message.find({
+    if (before && !/^[a-f\d]{24}$/i.test(before)) {
+      throw new HttpError(400, "Invalid message cursor");
+    }
+
+    const page = await getMessagePage({
       $or: [
         { senderId: myId, receiverId: userToChatId },
         { senderId: userToChatId, receiverId: myId },
       ],
-    }).sort({ createdAt: 1 });
+    }, before);
 
     await clearUnread(myId, userToChatId);
-    res.status(200).json(messages);
+    res.status(200).json(page);
   } catch (error) {
     next(error);
   }

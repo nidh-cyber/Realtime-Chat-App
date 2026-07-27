@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Image as ImageIcon, MoreVertical, Search, Send, X } from "lucide-react";
 import { formatMessageTime } from "../lib/utils";
 import { userAuthStore } from "../store/userAuthStore";
@@ -11,8 +11,9 @@ const GroupChatScreen = ({ group }) => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { authUser } = userAuthStore();
-  const { groupMessages, typingUsers, fetchGroupDetails, sendGroupMessage, subscribeToGroupMessages, unsubscribeFromGroupMessages } = useGroupStore();
-  const messageEndRef = useRef(null);
+  const { groupMessages, typingUsers, fetchGroupDetails, loadOlderGroupMessages, sendGroupMessage, subscribeToGroupMessages, unsubscribeFromGroupMessages, hasMoreGroupMessages, isGroupMessagesLoading, isLoadingOlderGroupMessages } = useGroupStore();
+  const messageListRef = useRef(null);
+  const shouldScrollToBottomRef = useRef(true);
   const typingTimeoutRef = useRef(null);
   const isTypingRef = useRef(false);
 
@@ -53,17 +54,38 @@ const GroupChatScreen = ({ group }) => {
 
   useEffect(() => {
     if (!group?._id) return;
+    shouldScrollToBottomRef.current = true;
     fetchGroupDetails(group._id);
     subscribeToGroupMessages();
 
     return () => unsubscribeFromGroupMessages();
   }, [fetchGroupDetails, group?._id, subscribeToGroupMessages, unsubscribeFromGroupMessages]);
 
-  useEffect(() => {
-    if (messageEndRef.current) {
-      messageEndRef.current.scrollIntoView({ behavior: "smooth" });
+  useLayoutEffect(() => {
+    const messageList = messageListRef.current;
+    if (messageList && shouldScrollToBottomRef.current && !isGroupMessagesLoading) {
+      messageList.scrollTop = messageList.scrollHeight;
+      shouldScrollToBottomRef.current = false;
     }
-  }, [groupMessages]);
+  }, [groupMessages, isGroupMessagesLoading]);
+
+  const handleScroll = async (event) => {
+    const messageList = event.currentTarget;
+    const isNearBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 80;
+    shouldScrollToBottomRef.current = isNearBottom;
+
+    if (messageSearch.trim() || messageList.scrollTop > 50 || !hasMoreGroupMessages || isLoadingOlderGroupMessages) return;
+
+    const previousHeight = messageList.scrollHeight;
+    const previousTop = messageList.scrollTop;
+    const loaded = await loadOlderGroupMessages(group._id);
+    if (loaded) {
+      requestAnimationFrame(() => {
+        const updatedList = messageListRef.current;
+        if (updatedList) updatedList.scrollTop = updatedList.scrollHeight - previousHeight + previousTop;
+      });
+    }
+  };
 
   useEffect(() => {
     return stopTyping;
@@ -135,7 +157,7 @@ const GroupChatScreen = ({ group }) => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div ref={messageListRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4">
         {isSearchOpen && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-base-300 bg-base-200 px-3 py-2">
             <Search size={16} className="text-zinc-400" />
@@ -149,6 +171,7 @@ const GroupChatScreen = ({ group }) => {
           </div>
         )}
 
+        {isLoadingOlderGroupMessages && <div className="py-2 text-center text-xs text-zinc-500">Loading older messages...</div>}
         {filteredMessages.map((message) => {
           const isMine = message.senderId?.toString() === authUser?._id || message.sender?.toString() === authUser?._id;
           return (
@@ -169,7 +192,6 @@ const GroupChatScreen = ({ group }) => {
         {messageSearch.trim() && filteredMessages.length === 0 && (
           <div className="py-6 text-center text-sm text-zinc-500">No messages matched your search.</div>
         )}
-        <div ref={messageEndRef} />
       </div>
 
       {typingLabel && <div className="px-4 pb-1 text-sm text-zinc-500">{typingLabel}</div>}

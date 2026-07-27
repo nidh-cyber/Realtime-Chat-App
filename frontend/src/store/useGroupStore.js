@@ -9,6 +9,8 @@ export const useGroupStore = create((set, get) => ({
   groupMessages: [],
   isGroupsLoading: false,
   isGroupMessagesLoading: false,
+  isLoadingOlderGroupMessages: false,
+  hasMoreGroupMessages: true,
   typingUsers: [],
   groupUnreadCounts: {},
 
@@ -53,15 +55,41 @@ export const useGroupStore = create((set, get) => ({
 
   fetchGroupDetails: async (groupId) => {
     if (!groupId) return;
-    set({ isGroupMessagesLoading: true });
+    set({ isGroupMessagesLoading: true, groupMessages: [], hasMoreGroupMessages: true });
     try {
       const res = await axiosInstance.get(`/groups/${groupId}`);
-      set({ groupMessages: res.data.messages || [], selectedGroup: res.data.group });
+      set({
+        groupMessages: res.data.messages || [],
+        hasMoreGroupMessages: res.data.hasMore,
+        selectedGroup: res.data.group,
+      });
       get().clearGroupUnread(groupId);
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to load group details");
     } finally {
       set({ isGroupMessagesLoading: false });
+    }
+  },
+
+  loadOlderGroupMessages: async (groupId) => {
+    const { groupMessages, hasMoreGroupMessages, isLoadingOlderGroupMessages } = get();
+    const oldestMessage = groupMessages[0];
+    if (!oldestMessage || !hasMoreGroupMessages || isLoadingOlderGroupMessages) return false;
+
+    set({ isLoadingOlderGroupMessages: true });
+    try {
+      const res = await axiosInstance.get(`/groups/${groupId}?before=${oldestMessage._id}`);
+      const olderMessages = res.data.messages || [];
+      set((state) => ({
+        groupMessages: [...olderMessages, ...state.groupMessages.filter((message) => !olderMessages.some((older) => older._id === message._id))],
+        hasMoreGroupMessages: res.data.hasMore,
+      }));
+      return olderMessages.length > 0;
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to load older messages");
+      return false;
+    } finally {
+      set({ isLoadingOlderGroupMessages: false });
     }
   },
 

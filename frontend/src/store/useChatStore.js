@@ -9,6 +9,8 @@ export const useChatStore = create ((set,get) => ({
     selectedUser: null,
     isUsersLoading: false,
     isMessagesLoading: false,
+    isLoadingOlderMessages: false,
+    hasMoreMessages: true,
     searchResults: { users: [], chats: [], messages: [], groups: [] },
     isSearchLoading: false,
 
@@ -26,15 +28,36 @@ export const useChatStore = create ((set,get) => ({
     },
 
     getMessages: async (userId) => {
-        set({ isMessagesLoading: true });
+        set({ isMessagesLoading: true, messages: [], hasMoreMessages: true });
         try {
-            // const res = await axiosInstance.get('/messages/${userId}');
             const res = await axiosInstance.get(`/messages/${userId}`);
-            set({ messages: res.data });
+            set({ messages: res.data.messages || [], hasMoreMessages: res.data.hasMore });
         } catch (error) {
-            toast.error(error.response.data.message);
+            toast.error(error.response?.data?.message || "Failed to load messages");
         } finally {
             set({ isMessagesLoading: false });
+        }
+    },
+
+    loadOlderMessages: async (userId) => {
+        const { messages, hasMoreMessages, isLoadingOlderMessages } = get();
+        const oldestMessage = messages[0];
+        if (!oldestMessage || !hasMoreMessages || isLoadingOlderMessages) return false;
+
+        set({ isLoadingOlderMessages: true });
+        try {
+            const res = await axiosInstance.get(`/messages/${userId}?before=${oldestMessage._id}`);
+            const olderMessages = res.data.messages || [];
+            set((state) => ({
+                messages: [...olderMessages, ...state.messages.filter((message) => !olderMessages.some((older) => older._id === message._id))],
+                hasMoreMessages: res.data.hasMore,
+            }));
+            return olderMessages.length > 0;
+        } catch (error) {
+            toast.error(error.response?.data?.message || "Failed to load older messages");
+            return false;
+        } finally {
+            set({ isLoadingOlderMessages: false });
         }
     },
 

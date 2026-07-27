@@ -7,6 +7,24 @@ import { HttpError } from "../lib/errorHandler.js";
 import { clearUnread, incrementUnread, invalidateGroupCaches } from "../lib/chatState.js";
 import { cacheKey, getCachedJson, setCachedJson, withDistributedLock } from "../lib/redis.js";
 
+const MESSAGE_PAGE_SIZE = 30;
+
+const getMessagePage = async (filter, before) => {
+  const cursorFilter = before ? { _id: { $lt: before } } : {};
+  const results = await Message.find({ ...filter, ...cursorFilter })
+    .sort({ _id: -1 })
+    .limit(MESSAGE_PAGE_SIZE + 1);
+
+  const hasMore = results.length > MESSAGE_PAGE_SIZE;
+  const messages = results.slice(0, MESSAGE_PAGE_SIZE).reverse();
+
+  return {
+    messages,
+    hasMore,
+    nextCursor: messages[0]?._id?.toString() || null,
+  };
+};
+
 const toObjectId = (value) => {
   if (!value) return null;
 
@@ -112,6 +130,10 @@ export const getGroups = async (req, res, next) => {
 export const getGroupById = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const { before } = req.query;
+    if (before && !/^[a-f\d]{24}$/i.test(before)) {
+      throw new HttpError(400, "Invalid message cursor");
+    }
     const group = await Group.findById(id)
       .populate("members", "fullName profilePic email")
       .populate("admins", "fullName profilePic email")
@@ -123,15 +145,8 @@ export const getGroupById = async (req, res, next) => {
 
     ensureMember(group, req.user._id);
 
-    const detailCacheKey = cacheKey("cache", "group", group._id.toString(), req.user._id.toString());
-    const cachedDetail = await getCachedJson(detailCacheKey);
-    if (cachedDetail) return res.status(200).json(cachedDetail);
-
-    const messages = await Message.find({ groupId: group._id }).sort({ createdAt: 1 });
-
-    const payload = { group, messages };
-    await setCachedJson(detailCacheKey, payload, 30);
-    res.status(200).json(payload);
+    const page = await getMessagePage({ groupId: group._id }, before);
+    res.status(200).json({ group, ...page });
   } catch (error) {
     next(error);
   }

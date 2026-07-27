@@ -2,6 +2,7 @@ import express from "express";
 import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import compression from "compression";
 
 import path from "path";
 
@@ -45,6 +46,9 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
+// Compress JSON/API payloads larger than 1 KB when the client supports it.
+// Small responses and media already compressed by their source are left alone.
+app.use("/api", compression({ threshold: 1024 }));
 app.use("/api", apiRateLimit);
 
 app.use("/api/auth", authRoutes);
