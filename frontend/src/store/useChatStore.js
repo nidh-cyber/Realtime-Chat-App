@@ -9,6 +9,8 @@ export const useChatStore = create ((set,get) => ({
     selectedUser: null,
     isUsersLoading: false,
     isMessagesLoading: false,
+    searchResults: { users: [], chats: [], messages: [], groups: [] },
+    isSearchLoading: false,
 
     getUsers: async () => {
         set({ isUsersLoading: true });
@@ -43,6 +45,23 @@ export const useChatStore = create ((set,get) => ({
             set({ messages: [...messages, res.data ]});
         } catch (error) {
             toast.error(error.response.data.message);
+        }
+    },
+
+    searchMessages: async (query) => {
+        if (!query?.trim()) {
+            set({ searchResults: { users: [], chats: [], messages: [], groups: [] } });
+            return;
+        }
+
+        set({ isSearchLoading: true });
+        try {
+            const res = await axiosInstance.get(`/messages/search?q=${encodeURIComponent(query)}`);
+            set({ searchResults: res.data });
+        } catch (error) {
+            toast.error(error.response?.data?.message || "Search failed");
+        } finally {
+            set({ isSearchLoading: false });
         }
     },
 

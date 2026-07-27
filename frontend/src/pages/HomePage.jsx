@@ -6,6 +6,7 @@ import NoChatSelected from "../components/NoChatSelected";
 import ChatContainer from "../components/ChatContainer";
 import GroupChatScreen from "../components/GroupChatScreen";
 import GroupProfileScreen from "../components/GroupProfileScreen";
+import DirectChatProfile from "../components/DirectChatProfile";
 import EditGroupModal from "../components/EditGroupModal";
 import MemberManagementModal from "../components/MemberManagementModal";
 
@@ -38,6 +39,11 @@ const HomePage = () => {
                       onEdit={() => setIsEditOpen(true)}
                       onManageMembers={() => setIsMembersOpen(true)}
                     />
+                  </div>
+                )}
+                {!showGroupView && selectedUser && (
+                  <div className="hidden w-80 border-l border-base-300 lg:block">
+                    <DirectChatProfile user={selectedUser} />
                   </div>
                 )}
               </div>

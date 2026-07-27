@@ -37,6 +37,8 @@ const groupSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+groupSchema.index({ name: "text" });
+
 const Group = mongoose.model("Group", groupSchema);
 
 export default Group;

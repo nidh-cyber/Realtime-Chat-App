@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image as ImageIcon, Send, X, Users } from "lucide-react";
+import { Image as ImageIcon, MoreVertical, Search, Send, X } from "lucide-react";
 import { formatMessageTime } from "../lib/utils";
 import { userAuthStore } from "../store/userAuthStore";
 import { useGroupStore } from "../store/useGroupStore";
@@ -7,6 +7,9 @@ import { useGroupStore } from "../store/useGroupStore";
 const GroupChatScreen = ({ group }) => {
   const [text, setText] = useState("");
   const [imagePreview, setImagePreview] = useState("");
+  const [messageSearch, setMessageSearch] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { authUser } = userAuthStore();
   const { groupMessages, typingUsers, fetchGroupDetails, sendGroupMessage, subscribeToGroupMessages, unsubscribeFromGroupMessages } = useGroupStore();
   const messageEndRef = useRef(null);
@@ -72,6 +75,10 @@ const GroupChatScreen = ({ group }) => {
     return `${activeUsers.join(", ")} typing...`;
   }, [group?._id, typingUsers]);
 
+  const filteredMessages = messageSearch.trim()
+    ? groupMessages.filter((message) => (message.message || "").toLowerCase().includes(messageSearch.trim().toLowerCase()))
+    : groupMessages;
+
   const handleImageChange = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -101,14 +108,48 @@ const GroupChatScreen = ({ group }) => {
             <div className="text-xs text-zinc-500">{group?.members?.length || 0} members</div>
           </div>
         </div>
-        <div className="flex items-center gap-2 rounded-full bg-base-200 px-3 py-1 text-sm">
-          <Users size={16} />
-          {group?.members?.length || 0}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsMenuOpen((open) => !open)}
+            className="rounded-full p-2 text-zinc-500 transition hover:bg-base-200"
+            aria-label="Group chat options"
+          >
+            <MoreVertical size={20} />
+          </button>
+          {isMenuOpen && (
+            <div className="absolute right-0 top-full z-20 mt-2 w-44 rounded-xl border border-base-300 bg-base-100 p-1 shadow-lg">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSearchOpen((open) => !open);
+                  setIsMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-base-200"
+              >
+                <Search size={16} />
+                {isSearchOpen ? "Hide search" : "Search messages"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
-        {groupMessages.map((message) => {
+        {isSearchOpen && (
+          <div className="mb-4 flex items-center gap-2 rounded-xl border border-base-300 bg-base-200 px-3 py-2">
+            <Search size={16} className="text-zinc-400" />
+            <input
+              value={messageSearch}
+              onChange={(event) => setMessageSearch(event.target.value)}
+              placeholder="Search this group"
+              className="w-full bg-transparent text-sm outline-none"
+              autoFocus
+            />
+          </div>
+        )}
+
+        {filteredMessages.map((message) => {
           const isMine = message.senderId?.toString() === authUser?._id || message.sender?.toString() === authUser?._id;
           return (
             <div key={message._id} className={`mb-3 flex ${isMine ? "justify-end" : "justify-start"}`}>
@@ -124,6 +165,10 @@ const GroupChatScreen = ({ group }) => {
             </div>
           );
         })}
+
+        {messageSearch.trim() && filteredMessages.length === 0 && (
+          <div className="py-6 text-center text-sm text-zinc-500">No messages matched your search.</div>
+        )}
         <div ref={messageEndRef} />
       </div>
 
