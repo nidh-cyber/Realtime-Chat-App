@@ -28,12 +28,23 @@ const App = () => {
 
   console.log({ authUser });
 
-  if (isCheckingAuth && !authUser)
+  if (isCheckingAuth && !authUser) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <Loader className="size-10 animate-spin" />
+      <div data-theme={theme}>
+        <Navbar />
+        <Routes>
+          <Route path="/" element={<Navigate to="/login" />} />
+          <Route path="/signup" element={<SignUpPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/profile" element={<Navigate to="/login" />} />
+        </Routes>
+        <Toaster />
       </div>
     );
+  }
 
   return (
     <div data-theme={theme}>

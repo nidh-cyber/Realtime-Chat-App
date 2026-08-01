@@ -4,7 +4,9 @@ import toast from "react-hot-toast";
 // import { connection } from "mongoose";
 import { io } from "socket.io-client";
 
-const BASE_URL = import.meta.env.MODE === "development" ? "http://localhost:5001" : import.meta.env.VITE_BACKEND_URL;
+const BASE_URL = import.meta.env.MODE === "development"
+    ? "http://localhost:5001"
+    : (import.meta.env.VITE_BACKEND_URL || window.location.origin);
 
 export const userAuthStore=create((set, get) => ({
     authUser: null,
@@ -93,6 +95,9 @@ export const userAuthStore=create((set, get) => ({
         if(!authUser || get().socket?.connected) return;
 
         const socket = io(BASE_URL, {
+            transports: ["websocket"],
+            reconnection: false,
+            timeout: 5000,
             query: {
                 userId: authUser._id,
             },
