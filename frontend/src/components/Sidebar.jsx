@@ -199,9 +199,20 @@ const Sidebar = () => {
                   {onlineUsers.includes(user._id) && <span className="absolute bottom-0 right-0 size-3 rounded-full bg-green-500 ring-2 ring-zinc-900" />}
                 </div>
 
-                <div className="hidden min-w-0 text-left lg:block">
-                  <div className="truncate font-medium">{user.fullName}</div>
-                  <div className="text-sm text-zinc-400">{onlineUsers.includes(user._id) ? "Online" : "Offline"}</div>
+                <div className="hidden min-w-0 flex-1 text-left lg:block">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="truncate font-medium">{user.fullName}</div>
+                    {user.lastMessageAt && (
+                      <span className="text-xs text-zinc-500">{new Date(user.lastMessageAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false })}</span>
+                    )}
+                  </div>
+                  <div className="text-sm text-zinc-400">
+                    {user.lastMessage ? (
+                      <span className="line-clamp-1">{user.lastMessage.text || user.lastMessage.message || "Shared an image"}</span>
+                    ) : (
+                      onlineUsers.includes(user._id) ? "Online" : "Offline"
+                    )}
+                  </div>
                 </div>
               </button>
             ))}
