@@ -8,12 +8,9 @@ import path from "path";
 
 import { connectDB } from "./lib/db.js";
 
-import authRoutes from "./routes/auth.route.js";
-import messageRoutes from "./routes/message.route.js";
-import groupRoutes from "./routes/group.route.js";
+import gatewayRoutes from "./routes/gateway.route.js";
 import { app, initializeSocketRedis, server } from "./lib/socket.js";
 import { errorHandler } from "./lib/errorHandler.js";
-import { apiRateLimit } from "./middleware/rateLimit.middleware.js";
 
 dotenv.config();
 
@@ -49,11 +46,7 @@ app.options("*", cors(corsOptions));
 // Compress JSON/API payloads larger than 1 KB when the client supports it.
 // Small responses and media already compressed by their source are left alone.
 app.use("/api", compression({ threshold: 1024 }));
-app.use("/api", apiRateLimit);
-
-app.use("/api/auth", authRoutes);
-app.use("/api/messages", messageRoutes);
-app.use("/api/groups", groupRoutes);
+app.use("/api", gatewayRoutes);
 
 if (process.env.NODE_ENV === "production") {
   app.use(express.static(path.join(__dirname, "../frontend/dist")));
